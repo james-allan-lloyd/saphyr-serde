@@ -1,16 +1,20 @@
-use saphyr::{LoadableYamlNode, Yaml};
-use serde::{
-    Deserialize,
-    de::{DeserializeSeed, MapAccess, Visitor},
+use std::{
+    ops::{AddAssign, MulAssign, Neg},
+    str::FromStr,
 };
 
-use crate::error::{DeserializeError, Result};
+use saphyr_parser::Event;
+use serde::{Deserialize, de::Visitor};
+
+use crate::{
+    error::{DeserializeError, Result},
+    mapping::YamlMapping,
+};
 
 pub struct YamlDeserializer<'de> {
     // This string starts with the input data and characters are truncated off
     // the beginning as data is parsed.
-    input: &'de str,
-    yaml: Yaml<'de>,
+    pub yaml: saphyr_parser::Parser<'de, saphyr_parser::StrInput<'de>>,
 }
 
 impl<'de> YamlDeserializer<'de> {
@@ -19,12 +23,31 @@ impl<'de> YamlDeserializer<'de> {
     // `serde_json::from_str(...)` while advanced use cases that require a
     // deserializer can make one with `serde_json::Deserializer::from_str(...)`.
     pub fn from_str(input: &'de str) -> Self {
-        let docs = Yaml::load_from_str(input).unwrap();
-        let yaml = &docs[0];
+        let yaml = saphyr_parser::Parser::new_from_str(input);
 
-        YamlDeserializer {
-            input,
-            yaml: yaml.clone(),
+        YamlDeserializer { yaml }
+    }
+
+    fn parse_unsigned<T>(&mut self) -> Result<T>
+    where
+        T: AddAssign<T> + MulAssign<T> + From<u8> + FromStr<Err = DeserializeError>,
+    {
+        match self.yaml.next().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(value, _, _, _), _span) => value.parse::<T>(),
+            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+        }
+    }
+
+    fn parse_signed<T>(&mut self) -> Result<T>
+    where
+        T: Neg<Output = T> + AddAssign<T> + MulAssign<T> + FromStr,
+    {
+        match self.yaml.next().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(value, _, _, _), _span) => match value.parse::<T>() {
+                Ok(value) => Ok(value),
+                Err(_) => todo!(),
+            },
+            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
         }
     }
 }
@@ -64,7 +87,7 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_i32(self.parse_signed()?)
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -221,12 +244,19 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        if let Yaml::Mapping(map) = self.yaml {
-            // for (key, value) in map {
-            visitor.visit_map(map)
-            // }
-        } else {
-            Err(DeserializeError::TypeError)
+        match self.yaml.next() {
+            Some(event) => match event {
+                Ok((saphyr_parser::Event::MappingStart(size, option_tag), span)) => {
+                    println!("Size {}", size);
+                    let value = visitor.visit_map(YamlMapping::new(self, size))?;
+                    Ok(value)
+                }
+                Ok((event, span)) => {
+                    Err(DeserializeError::UnexpectedElement(format!("{:?}", event)))
+                }
+                _ => todo!(),
+            },
+            None => Err(DeserializeError::TypeError),
         }
     }
 
@@ -239,7 +269,6 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        println!("{} {:?}", name, fields);
         self.deserialize_map(visitor)
     }
 
@@ -259,7 +288,10 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        match self.yaml.next().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
+            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+        }
     }
 
     fn deserialize_ignored_any<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -275,11 +307,12 @@ where
     T: Deserialize<'a>,
 {
     let mut deserializer = YamlDeserializer::from_str(s);
+    let stream_start = deserializer.yaml.next_event().unwrap().unwrap();
+    let doc_start = deserializer.yaml.next_event().unwrap().unwrap();
     let t = T::deserialize(&mut deserializer)?;
-    if deserializer.input.is_empty() {
-        Ok(t)
-    } else {
-        Err(DeserializeError::TrailingCharacters)
+    match deserializer.yaml.next_event().unwrap().unwrap() {
+        (Event::DocumentEnd, span) => Ok(t),
+        (event, span) => Err(DeserializeError::UnexpectedElement(format!("{:?}", event))),
     }
 }
 

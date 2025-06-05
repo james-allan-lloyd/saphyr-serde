@@ -9,6 +9,12 @@ pub enum DeserializeError {
 
     #[error("Invalid type")]
     TypeError,
+
+    #[error("Unexpected element")]
+    UnexpectedElement(String),
+
+    #[error("Serde error")]
+    SerdeError(String),
 }
 
 impl serde::de::Error for DeserializeError {
@@ -45,7 +51,7 @@ impl serde::de::Error for DeserializeError {
     where
         T: Display,
     {
-        todo!()
+        Self::SerdeError(format!("{}", msg))
     }
 }
 
