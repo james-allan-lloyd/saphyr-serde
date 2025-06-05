@@ -9,6 +9,7 @@ use serde::{Deserialize, de::Visitor};
 use crate::{
     error::{DeserializeError, Result},
     mapping::YamlMapping,
+    seq::YamlSequence,
 };
 
 pub struct YamlDeserializer<'de> {
@@ -69,6 +70,9 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut YamlDeserializer<'de> {
             // '"' => self.deserialize_str(visitor),
             // '0'..='9' => self.deserialize_u64(visitor),
             // '-' => self.deserialize_i64(visitor),
+            (saphyr_parser::Event::SequenceStart(_, _), span) => {
+                visitor.visit_seq(YamlSequence::new(self))
+            }
             // '[' => self.deserialize_seq(visitor),
             // '{' => self.deserialize_map(visitor),
             (event, span) => Err(DeserializeError::UnexpectedElement(format!("{:?}", event))),
@@ -338,6 +342,8 @@ where
 #[cfg(test)]
 mod test {
 
+    use std::ops::Add;
+
     use serde::Deserialize;
     use serde_json::json;
 
@@ -393,5 +399,73 @@ state: Noord Holland
             result,
             json!({"street": "Kerkstraat", "state": "Noord Holland"})
         );
+    }
+
+    #[derive(Deserialize, Debug, PartialEq, Eq)]
+    struct NestedAddress {
+        address: Address,
+    }
+
+    const NESTED_ADDRESS_YAML_STR: &str = r###"
+address:
+    street: Kerkstraat
+    state: Noord Holland
+"###;
+
+    #[test]
+    fn it_reads_nested_values() {
+        let result: serde_json::Value =
+            from_str(NESTED_ADDRESS_YAML_STR).expect("Should deserialize");
+
+        assert_eq!(
+            result,
+            json!({"address": {"street": "Kerkstraat", "state": "Noord Holland"}})
+        );
+
+        let address: NestedAddress = from_str(NESTED_ADDRESS_YAML_STR).expect("Should deserialize");
+
+        assert_eq!(
+            address,
+            NestedAddress {
+                address: Address {
+                    street: String::from("Kerkstraat"),
+                    state: String::from("Noord Holland")
+                }
+            }
+        );
+    }
+
+    const SEQUENCE_ADDRESS_YAML_STR: &str = r###"
+addresses:
+  - street: Kerkstraat
+    state: Noord Holland
+  - street: Main Street
+    state: New York
+"###;
+
+    #[test]
+    fn it_reads_sequences() {
+        let result: serde_json::Value =
+            from_str(SEQUENCE_ADDRESS_YAML_STR).expect("Should deserialize");
+
+        assert_eq!(
+            result,
+            json!({"addresses": [
+                {"street": "Kerkstraat", "state": "Noord Holland"},
+                {"street": "Main Street", "state": "New York"},
+            ]})
+        );
+
+        // let address: NestedAddress = from_str(NESTED_ADDRESS_YAML_STR).expect("Should deserialize");
+        //
+        // assert_eq!(
+        //     address,
+        //     NestedAddress {
+        //         address: Address {
+        //             street: String::from("Kerkstraat"),
+        //             state: String::from("Noord Holland")
+        //         }
+        //     }
+        // );
     }
 }
