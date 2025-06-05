@@ -59,7 +59,20 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        match self.yaml.next().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(value, _, _, _), span) => visitor.visit_str(&value),
+            (saphyr_parser::Event::MappingStart(map, _), span) => {
+                visitor.visit_map(YamlMapping::new(self))
+            }
+            // 'n' => self.deserialize_unit(visitor),
+            // 't' | 'f' => self.deserialize_bool(visitor),
+            // '"' => self.deserialize_str(visitor),
+            // '0'..='9' => self.deserialize_u64(visitor),
+            // '-' => self.deserialize_i64(visitor),
+            // '[' => self.deserialize_seq(visitor),
+            // '{' => self.deserialize_map(visitor),
+            (event, span) => Err(DeserializeError::UnexpectedElement(format!("{:?}", event))),
+        }
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -150,14 +163,20 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        match self.yaml.next().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
+            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+        }
     }
 
     fn deserialize_string<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        match self.yaml.next().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
+            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+        }
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -248,7 +267,7 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut YamlDeserializer<'de> {
             Some(event) => match event {
                 Ok((saphyr_parser::Event::MappingStart(size, option_tag), span)) => {
                     println!("Size {}", size);
-                    let value = visitor.visit_map(YamlMapping::new(self, size))?;
+                    let value = visitor.visit_map(YamlMapping::new(self))?;
                     Ok(value)
                 }
                 Ok((event, span)) => {
@@ -320,6 +339,7 @@ where
 mod test {
 
     use serde::Deserialize;
+    use serde_json::json;
 
     use crate::deserialize::from_str;
 
@@ -339,5 +359,39 @@ y: 45
         let result: Point = from_str(POINT_YAML_STR).expect("Should deserialize");
 
         assert_eq!(result, Point { x: 10, y: 45 });
+    }
+
+    #[derive(Deserialize, PartialEq, Eq, Debug)]
+    struct Address {
+        street: String,
+        state: String,
+    }
+
+    const ADDRESS_YAML_STR: &str = r###"
+street: Kerkstraat
+state: Noord Holland
+"###;
+
+    #[test]
+    fn it_deserializes_strings() {
+        let result: Address = from_str(ADDRESS_YAML_STR).expect("Should deserialize");
+
+        assert_eq!(
+            result,
+            Address {
+                street: String::from("Kerkstraat"),
+                state: String::from("Noord Holland")
+            }
+        );
+    }
+
+    #[test]
+    fn it_reads_json_values() {
+        let result: serde_json::Value = from_str(ADDRESS_YAML_STR).expect("Should deserialize");
+
+        assert_eq!(
+            result,
+            json!({"street": "Kerkstraat", "state": "Noord Holland"})
+        );
     }
 }
