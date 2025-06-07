@@ -13,6 +13,7 @@ use crate::{
     error::{DeserializeError, Result},
     mapping::YamlMapping,
     seq::YamlSequence,
+    variant::Enum,
 };
 
 pub struct YamlDeserializer<'de> {
@@ -38,7 +39,7 @@ impl<'de> YamlDeserializer<'de> {
     {
         match self.yaml.next().unwrap().unwrap() {
             (saphyr_parser::Event::Scalar(value, _, _, _), _span) => value.parse::<T>(),
-            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+            (event, span) => Err(DeserializeError::unexpected(&event, span, "parse_unsigned")),
         }
     }
 
@@ -51,7 +52,7 @@ impl<'de> YamlDeserializer<'de> {
                 Ok(value) => Ok(value),
                 Err(_) => todo!(),
             },
-            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+            (event, span) => Err(DeserializeError::unexpected(&event, span, "parse_signed")),
         }
     }
 }
@@ -76,7 +77,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
             (saphyr_parser::Event::SequenceStart(_, _), _span) => {
                 visitor.visit_seq(YamlSequence::new(self))
             }
-            (event, _span) => Err(DeserializeError::UnexpectedElement(format!("{:?}", event))),
+            (event, span) => Err(DeserializeError::unexpected(
+                &event,
+                span,
+                "deserialize_any",
+            )),
         }
     }
 
@@ -170,7 +175,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     {
         match self.yaml.next().unwrap().unwrap() {
             (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
-            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+            (event, span) => Err(DeserializeError::unexpected(
+                &event,
+                span,
+                "deserialize_str",
+            )),
         }
     }
 
@@ -180,7 +189,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     {
         match self.yaml.next().unwrap().unwrap() {
             (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
-            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+            (event, span) => Err(DeserializeError::unexpected(
+                &event,
+                span,
+                "deserialize_string",
+            )),
         }
     }
 
@@ -243,7 +256,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
                 let value = visitor.visit_seq(YamlSequence::new(self))?;
                 Ok(value)
             }
-            (event, _span) => Err(DeserializeError::UnexpectedElement(format!("{:?}", event))),
+            (event, span) => Err(DeserializeError::unexpected(
+                &event,
+                span,
+                "deserialize_seq",
+            )),
         }
     }
 
@@ -280,9 +297,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
                     let value = visitor.visit_map(YamlMapping::new(self))?;
                     Ok(value)
                 }
-                Ok((event, _span)) => {
-                    Err(DeserializeError::UnexpectedElement(format!("{:?}", event)))
-                }
+                Ok((event, _span)) => Err(DeserializeError::unexpected(
+                    &event,
+                    _span,
+                    "deserialize_map",
+                )),
                 _ => todo!(),
             },
             None => Err(DeserializeError::TypeError),
@@ -310,11 +329,45 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
+        // match self.yaml.peek().unwrap().unwrap() {
+        //     (saphyr_parser::Event::Scalar(key, _, _, _), _span) => {
+        //         let s = key.to_string();
+        //         self.yaml.next();
+        //         visitor.visit_enum(s.into_deserializer())
+        //     }
+        //     (saphyr_parser::Event::MappingStart(_, _), _span) => {
+        //         visitor.visit_enum(Enum::new(self))
+        //     }
+        //
+        //     (event, span) => Err(DeserializeError::unexpected(
+        //         event,
+        //         span.to_owned(),
+        //         "deserialize_enum",
+        //     )),
+        // }
         match self.yaml.next().unwrap().unwrap() {
             (saphyr_parser::Event::Scalar(key, _, _, _), _span) => {
-                visitor.visit_enum(key.to_string().into_deserializer())
+                let s = key.to_string();
+                visitor.visit_enum(s.into_deserializer())
             }
-            (event, _span) => Err(DeserializeError::UnexpectedElement(format!("{:?}", event))),
+            (saphyr_parser::Event::MappingStart(_, _), _span) => {
+                let value = visitor.visit_enum(Enum::new(self))?;
+
+                match self.yaml.next().unwrap().unwrap() {
+                    (saphyr_parser::Event::MappingEnd, _span) => Ok(value),
+                    (event, span) => Err(DeserializeError::unexpected(
+                        &event,
+                        span,
+                        "deserialize_identifier",
+                    )),
+                }
+            }
+
+            (event, span) => Err(DeserializeError::unexpected(
+                &event,
+                span,
+                "deserialize_enum",
+            )),
         }
     }
 
@@ -324,7 +377,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     {
         match self.yaml.next().unwrap().unwrap() {
             (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
-            e => Err(DeserializeError::UnexpectedElement(format!("{:?}", e))),
+            (event, span) => Err(DeserializeError::unexpected(
+                &event,
+                span,
+                "deserialize_identifier",
+            )),
         }
     }
 
@@ -348,7 +405,7 @@ where
     let t = T::deserialize(&mut deserializer)?;
     match deserializer.yaml.next_event().unwrap().unwrap() {
         (Event::DocumentEnd, _span) => Ok(t),
-        (event, _span) => Err(DeserializeError::UnexpectedElement(format!("{:?}", event))),
+        (event, span) => Err(DeserializeError::unexpected(&event, span, "from_str")),
     }
 }
 
@@ -509,6 +566,41 @@ value: ValueA
             StructWithEnum {
                 value: TestEnum::ValueA
             }
+        );
+    }
+
+    #[derive(Deserialize, PartialEq, Eq, Debug)]
+    enum TestExternallyTaggedEnum {
+        ValueA { id: String, method: String },
+        ValueB { id: String, result: String },
+    }
+
+    const EXTERNALLY_TAGGED_ENUM_YAML_STR: &str = r###"
+- ValueA:
+    id: foo
+    method: bar
+- ValueB:
+    id: baz
+    result: passed
+"###;
+
+    #[test]
+    fn it_reads_externally_tagged_enums() {
+        let result: Vec<TestExternallyTaggedEnum> =
+            from_str(EXTERNALLY_TAGGED_ENUM_YAML_STR).expect("Should deserialize");
+
+        assert_eq!(
+            result,
+            vec![
+                TestExternallyTaggedEnum::ValueA {
+                    id: String::from("foo"),
+                    method: String::from("bar")
+                },
+                TestExternallyTaggedEnum::ValueB {
+                    id: String::from("baz"),
+                    result: String::from("passed")
+                }
+            ],
         );
     }
 }

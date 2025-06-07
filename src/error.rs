@@ -10,11 +10,27 @@ pub enum DeserializeError {
     #[error("Invalid type")]
     TypeError,
 
-    #[error("Unexpected element")]
-    UnexpectedElement(String),
+    #[error("Unexpected element {event_name} at line {}, column {}", .span.start.line(), .span.start.col())]
+    UnexpectedElement {
+        event_name: String,
+        span: saphyr_parser::Span,
+    },
 
     #[error("Serde error")]
     SerdeError(String),
+}
+
+impl DeserializeError {
+    pub(crate) fn unexpected(
+        event: &saphyr_parser::Event,
+        span: saphyr_parser::Span,
+        location: &str,
+    ) -> Self {
+        Self::UnexpectedElement {
+            event_name: format!("{:?} (in {})", event, location),
+            span,
+        }
+    }
 }
 
 impl serde::de::Error for DeserializeError {
