@@ -30,6 +30,12 @@ pub enum DeserializeError {
         text: String,
         span: saphyr_parser::Span,
     },
+
+    #[error("Unexpected early termination")]
+    EarlyTermination,
+
+    #[error("Scan error")]
+    ScanError(#[from] saphyr_parser::ScanError),
 }
 
 impl DeserializeError {

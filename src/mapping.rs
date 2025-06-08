@@ -19,11 +19,12 @@ impl<'de, 'a> MapAccess<'de> for YamlMapping<'a, 'de> {
     where
         K: DeserializeSeed<'de>,
     {
-        if self.de.yaml.peek().unwrap().unwrap().0 == Event::MappingEnd {
-            self.de.yaml.next();
-            Ok(None)
-        } else {
-            seed.deserialize(&mut *self.de).map(Some)
+        match self.de.peek_event() {
+            Some((Event::MappingEnd, _span)) => {
+                self.de.next_event()?;
+                Ok(None)
+            }
+            _ => seed.deserialize(&mut *self.de).map(Some),
         }
     }
 

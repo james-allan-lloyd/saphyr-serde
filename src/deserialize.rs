@@ -1,7 +1,4 @@
-use std::{
-    ops::{AddAssign, MulAssign, Neg},
-    str::FromStr,
-};
+use std::str::FromStr;
 
 use regex::RegexSet;
 use saphyr_parser::Event;
@@ -20,7 +17,7 @@ use crate::{
 pub struct YamlDeserializer<'de> {
     // This string starts with the input data and characters are truncated off
     // the beginning as data is parsed.
-    pub yaml: saphyr_parser::Parser<'de, saphyr_parser::StrInput<'de>>,
+    yaml: saphyr_parser::Parser<'de, saphyr_parser::StrInput<'de>>,
 }
 
 impl<'de> YamlDeserializer<'de> {
@@ -34,59 +31,33 @@ impl<'de> YamlDeserializer<'de> {
         YamlDeserializer { yaml }
     }
 
-    fn parse_unsigned<T>(&mut self) -> Result<T>
-    where
-        T: AddAssign<T> + MulAssign<T> + From<u8> + FromStr,
-    {
-        match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::Scalar(value, _, _, _), span) => match value.parse::<T>() {
-                Ok(value) => Ok(value),
-                Err(_) => Err(DeserializeError::number_parse_failure(
-                    &value,
-                    span,
-                    "parse_unsigned",
-                )),
-            },
-            (event, span) => Err(DeserializeError::unexpected(&event, span, "parse_unsigned")),
-        }
+    pub fn next_event(&mut self) -> Result<(Event<'de>, saphyr_parser::Span)> {
+        let next = self.yaml.next_event();
+        println!("next: {:?}", next);
+        Ok(next.ok_or(DeserializeError::EarlyTermination)??)
     }
 
-    fn parse_signed<T>(&mut self) -> Result<T>
-    where
-        T: Neg<Output = T> + AddAssign<T> + MulAssign<T> + FromStr,
-    {
-        match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::Scalar(value, _, _, _), span) => match value.parse::<T>() {
-                Ok(value) => Ok(value),
-                Err(_) => Err(DeserializeError::number_parse_failure(
-                    &value,
-                    span,
-                    "parse_signed",
-                )),
-            },
-            (event, span) => Err(DeserializeError::unexpected(&event, span, "parse_signed")),
-        }
+    pub fn peek_event(&mut self) -> Option<&(Event<'_>, saphyr_parser::Span)> {
+        let peek = self.yaml.peek();
+        println!("peek: {:?}", peek);
+        // TODO:
+        peek.and_then(|r| r.ok())
     }
 
-    fn parse_float<T>(&mut self) -> Result<T>
+    pub fn parse_scalar<T>(&mut self) -> Result<T>
     where
         T: FromStr,
     {
-        match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::Scalar(value, _, _, _), span) => match value.parse::<T>() {
-                Ok(value) => Ok(value),
-                Err(_) => Err(DeserializeError::number_parse_failure(
-                    &value,
-                    span,
-                    "parse_signed",
-                )),
-            },
-            (event, span) => Err(DeserializeError::unexpected(&event, span, "parse_signed")),
-        }
+        let (s, span) = self.read_scalar_string()?;
+        let parse_result = s.parse::<T>();
+        parse_result
+            .map_err(|_e| DeserializeError::number_parse_failure(&s, span, "parse_unsigned"))
     }
 
-    fn read_scalar_string(&mut self) -> Result<(std::borrow::Cow<'_, str>, saphyr_parser::Span)> {
-        match self.yaml.next().unwrap().unwrap() {
+    pub fn read_scalar_string(
+        &mut self,
+    ) -> Result<(std::borrow::Cow<'_, str>, saphyr_parser::Span)> {
+        match self.next_event()? {
             (saphyr_parser::Event::Scalar(s, _, _, _), span) => Ok((s, span)),
             (event, span) => Err(DeserializeError::unexpected(
                 &event,
@@ -96,8 +67,10 @@ impl<'de> YamlDeserializer<'de> {
         }
     }
 
-    fn peek_scalar_string(&mut self) -> Option<(std::borrow::Cow<'_, str>, saphyr_parser::Span)> {
-        match self.yaml.peek().unwrap().unwrap() {
+    pub fn peek_scalar_string(
+        &mut self,
+    ) -> Option<(std::borrow::Cow<'_, str>, saphyr_parser::Span)> {
+        match self.peek_event()? {
             (saphyr_parser::Event::Scalar(s, _, _, _), span) => Some((s.clone(), span.to_owned())),
             _ => None,
         }
@@ -111,7 +84,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        match self.yaml.next().unwrap().unwrap() {
+        match self.next_event()? {
             (saphyr_parser::Event::Scalar(value, _, _, _), _span) => visitor.visit_str(&value),
             (saphyr_parser::Event::MappingStart(_map, _), _span) => {
                 visitor.visit_map(YamlMapping::new(self))
@@ -159,70 +132,70 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i8(self.parse_signed()?)
+        visitor.visit_i8(self.parse_scalar()?)
     }
 
     fn deserialize_i16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i16(self.parse_signed()?)
+        visitor.visit_i16(self.parse_scalar()?)
     }
 
     fn deserialize_i32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i32(self.parse_signed()?)
+        visitor.visit_i32(self.parse_scalar()?)
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i64(self.parse_signed()?)
+        visitor.visit_i64(self.parse_scalar()?)
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u8(self.parse_unsigned()?)
+        visitor.visit_u8(self.parse_scalar()?)
     }
 
     fn deserialize_u16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u16(self.parse_unsigned()?)
+        visitor.visit_u16(self.parse_scalar()?)
     }
 
     fn deserialize_u32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u32(self.parse_unsigned()?)
+        visitor.visit_u32(self.parse_scalar()?)
     }
 
     fn deserialize_u64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u64(self.parse_unsigned()?)
+        visitor.visit_u64(self.parse_scalar()?)
     }
 
     fn deserialize_f32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_f32(self.parse_float()?)
+        visitor.visit_f32(self.parse_scalar()?)
     }
 
     fn deserialize_f64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_f64(self.parse_float()?)
+        visitor.visit_f64(self.parse_scalar()?)
     }
 
     fn deserialize_char<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -280,11 +253,9 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     {
         match self.peek_scalar_string().map(|(s, _span)| s == "null") {
             Some(true) => {
-                println!("visit none");
+                self.next_event()?;
                 visitor.visit_none()
             }
-            // Some(false) => visitor.visit_some(self),
-            // None => visitor.visit_some(self),
             _ => visitor.visit_some(self),
         }
     }

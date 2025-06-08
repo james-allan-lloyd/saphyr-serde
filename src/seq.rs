@@ -20,11 +20,12 @@ impl<'de, 'a> SeqAccess<'de> for YamlSequence<'a, 'de> {
     where
         T: DeserializeSeed<'de>,
     {
-        if self.de.yaml.peek().unwrap().unwrap().0 == Event::SequenceEnd {
-            self.de.yaml.next();
-            Ok(None)
-        } else {
-            seed.deserialize(&mut *self.de).map(Some)
+        match self.de.peek_event() {
+            Some((Event::SequenceEnd, _span)) => {
+                self.de.next_event()?;
+                Ok(None)
+            }
+            _ => seed.deserialize(&mut *self.de).map(Some),
         }
     }
 }
