@@ -3,6 +3,7 @@ use std::{
     str::FromStr,
 };
 
+use regex::RegexSet;
 use saphyr_parser::Event;
 use serde::{
     Deserialize,
@@ -35,10 +36,17 @@ impl<'de> YamlDeserializer<'de> {
 
     fn parse_unsigned<T>(&mut self) -> Result<T>
     where
-        T: AddAssign<T> + MulAssign<T> + From<u8> + FromStr<Err = DeserializeError>,
+        T: AddAssign<T> + MulAssign<T> + From<u8> + FromStr,
     {
         match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::Scalar(value, _, _, _), _span) => value.parse::<T>(),
+            (saphyr_parser::Event::Scalar(value, _, _, _), span) => match value.parse::<T>() {
+                Ok(value) => Ok(value),
+                Err(_) => Err(DeserializeError::number_parse_failure(
+                    &value,
+                    span,
+                    "parse_unsigned",
+                )),
+            },
             (event, span) => Err(DeserializeError::unexpected(&event, span, "parse_unsigned")),
         }
     }
@@ -48,11 +56,50 @@ impl<'de> YamlDeserializer<'de> {
         T: Neg<Output = T> + AddAssign<T> + MulAssign<T> + FromStr,
     {
         match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::Scalar(value, _, _, _), _span) => match value.parse::<T>() {
+            (saphyr_parser::Event::Scalar(value, _, _, _), span) => match value.parse::<T>() {
                 Ok(value) => Ok(value),
-                Err(_) => todo!(),
+                Err(_) => Err(DeserializeError::number_parse_failure(
+                    &value,
+                    span,
+                    "parse_signed",
+                )),
             },
             (event, span) => Err(DeserializeError::unexpected(&event, span, "parse_signed")),
+        }
+    }
+
+    fn parse_float<T>(&mut self) -> Result<T>
+    where
+        T: FromStr,
+    {
+        match self.yaml.next().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(value, _, _, _), span) => match value.parse::<T>() {
+                Ok(value) => Ok(value),
+                Err(_) => Err(DeserializeError::number_parse_failure(
+                    &value,
+                    span,
+                    "parse_signed",
+                )),
+            },
+            (event, span) => Err(DeserializeError::unexpected(&event, span, "parse_signed")),
+        }
+    }
+
+    fn read_scalar_string(&mut self) -> Result<(std::borrow::Cow<'_, str>, saphyr_parser::Span)> {
+        match self.yaml.next().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(s, _, _, _), span) => Ok((s, span)),
+            (event, span) => Err(DeserializeError::unexpected(
+                &event,
+                span,
+                "deserialize_str",
+            )),
+        }
+    }
+
+    fn peek_scalar_string(&mut self) -> Option<(std::borrow::Cow<'_, str>, saphyr_parser::Span)> {
+        match self.yaml.peek().unwrap().unwrap() {
+            (saphyr_parser::Event::Scalar(s, _, _, _), span) => Some((s.clone(), span.to_owned())),
+            _ => None,
         }
     }
 }
@@ -85,25 +132,41 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
         }
     }
 
-    fn deserialize_bool<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_bool<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        // FIXME: don't instantiate here
+        let set = RegexSet::new([
+            r"^(y|Y|yes|Yes|YES|true|True|TRUE|on|On|ON|)$",
+            r"^(n|N|no|No|NO|false|False|FALSE|off|Off|OFF)$",
+        ])
+        .unwrap();
+
+        let (s, span) = self.read_scalar_string()?;
+
+        let matches = set.matches(&s);
+        if matches.matched(0) {
+            visitor.visit_bool(true)
+        } else if matches.matched(1) {
+            visitor.visit_bool(false)
+        } else {
+            Err(DeserializeError::not_a_bool(&s, span))
+        }
     }
 
-    fn deserialize_i8<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_i8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_i8(self.parse_signed()?)
     }
 
-    fn deserialize_i16<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_i16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_i16(self.parse_signed()?)
     }
 
     fn deserialize_i32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -113,60 +176,60 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
         visitor.visit_i32(self.parse_signed()?)
     }
 
-    fn deserialize_i64<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_i64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_i64(self.parse_signed()?)
     }
 
-    fn deserialize_u8<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_u8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_u8(self.parse_unsigned()?)
     }
 
-    fn deserialize_u16<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_u16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_u16(self.parse_unsigned()?)
     }
 
-    fn deserialize_u32<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_u32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_u32(self.parse_unsigned()?)
     }
 
-    fn deserialize_u64<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_u64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_u64(self.parse_unsigned()?)
     }
 
-    fn deserialize_f32<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_f32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_f32(self.parse_float()?)
     }
 
-    fn deserialize_f64<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_f64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_f64(self.parse_float()?)
     }
 
-    fn deserialize_char<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_char<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        self.deserialize_str(visitor)
     }
 
     fn deserialize_str<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -211,11 +274,19 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
         todo!()
     }
 
-    fn deserialize_option<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_option<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        match self.peek_scalar_string().map(|(s, _span)| s == "null") {
+            Some(true) => {
+                println!("visit none");
+                visitor.visit_none()
+            }
+            // Some(false) => visitor.visit_some(self),
+            // None => visitor.visit_some(self),
+            _ => visitor.visit_some(self),
+        }
     }
 
     fn deserialize_unit<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -329,22 +400,6 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        // match self.yaml.peek().unwrap().unwrap() {
-        //     (saphyr_parser::Event::Scalar(key, _, _, _), _span) => {
-        //         let s = key.to_string();
-        //         self.yaml.next();
-        //         visitor.visit_enum(s.into_deserializer())
-        //     }
-        //     (saphyr_parser::Event::MappingStart(_, _), _span) => {
-        //         visitor.visit_enum(Enum::new(self))
-        //     }
-        //
-        //     (event, span) => Err(DeserializeError::unexpected(
-        //         event,
-        //         span.to_owned(),
-        //         "deserialize_enum",
-        //     )),
-        // }
         match self.yaml.next().unwrap().unwrap() {
             (saphyr_parser::Event::Scalar(key, _, _, _), _span) => {
                 let s = key.to_string();
@@ -390,7 +445,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
         V: Visitor<'de>,
     {
         todo!()
-        // visitor.visit_none()
+        // _visitor.visit_none()
     }
 }
 
@@ -411,6 +466,8 @@ where
 
 #[cfg(test)]
 mod test {
+
+    use std::f32;
 
     use serde::Deserialize;
     use serde_json::json;
@@ -602,5 +659,124 @@ value: ValueA
                 }
             ],
         );
+    }
+
+    #[test]
+    fn it_reads_all_the_int_formats() {
+        #[derive(Deserialize, PartialEq, Eq, Debug)]
+        struct TestInts {
+            sbyte: i8,
+            ubyte: u8,
+            sshort: i16,
+            ushort: u16,
+            slong: i32,
+            ulong: u32,
+            slonglong: i64,
+            ulonglong: u64,
+        }
+
+        const TEST_INTS_YAML: &str = r###"
+sbyte: -1
+ubyte: 2
+sshort: -3
+ushort: 4
+slong: -5
+ulong: 6
+slonglong: -7
+ulonglong: 8
+"###;
+        let result: TestInts = from_str(TEST_INTS_YAML).expect("Should deserialize");
+
+        assert_eq!(
+            result,
+            TestInts {
+                sbyte: -1,
+                ubyte: 2,
+                sshort: -3,
+                ushort: 4,
+                slong: -5,
+                ulong: 6,
+                slonglong: -7,
+                ulonglong: 8,
+            }
+        );
+    }
+
+    #[test]
+    fn it_reads_all_both_floats() {
+        #[derive(Deserialize, Debug)]
+        struct TestFloats {
+            single: f32,
+            double: f64,
+        }
+
+        const TEST_YAML: &str = r###"
+single: 0.123
+double: 0.123
+"###;
+        let result: TestFloats = from_str(TEST_YAML).expect("Should deserialize");
+
+        fn are_nearly_equal<T: Into<f64>>(a: T, b: T, epsilon: T) -> bool {
+            let a = a.into();
+            let b = b.into();
+            let epsilon = epsilon.into();
+
+            (a - b).abs() < epsilon
+        }
+
+        assert!(are_nearly_equal(result.single, 0.123, f32::EPSILON));
+        assert!(are_nearly_equal(result.double, 0.123, f64::EPSILON));
+    }
+
+    #[test]
+    fn it_reads_chars() {
+        #[derive(Deserialize, Debug)]
+        struct Test {
+            c: char,
+        }
+
+        from_str::<Test>(
+            r###"
+c: ab
+"###,
+        )
+        .expect_err("Should not deserialize");
+
+        let result: Test = from_str(
+            r###"
+c: a
+"###,
+        )
+        .expect("Should deserialize");
+        assert_eq!(result.c, 'a');
+    }
+
+    #[test]
+    fn it_reads_bools() {
+        #[derive(Deserialize, Debug)]
+        struct Test {
+            b: bool,
+        }
+
+        from_str::<Test>("b: not_a_boolean").expect_err("Should not deserialize");
+
+        let result: Test = from_str("b: True").expect("Should deserialize");
+        assert!(result.b);
+
+        from_str::<Test>("b: tRUE").expect_err("Should not deserialize");
+    }
+
+    #[test]
+    fn it_reads_options() {
+        #[derive(Deserialize, Debug)]
+        struct Test {
+            opt: Option<String>,
+        }
+
+        let result: Test = from_str("opt: foo").expect("Should deserialize");
+        assert_eq!(result.opt, Some(String::from("foo")));
+
+        let result: Test = from_str("opt: null").expect("Should deserialize");
+        assert_eq!(result.opt, None);
     }
 }

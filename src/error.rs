@@ -18,6 +18,18 @@ pub enum DeserializeError {
 
     #[error("Serde error")]
     SerdeError(String),
+
+    #[error("Unable to parse {text} as a number at line {}, column {}", .span.start.line(), .span.start.col())]
+    NumberParseError {
+        text: String,
+        span: saphyr_parser::Span,
+    },
+
+    #[error("Unable to parse {text} as a number at line {}, column {}", .span.start.line(), .span.start.col())]
+    BoolParseError {
+        text: String,
+        span: saphyr_parser::Span,
+    },
 }
 
 impl DeserializeError {
@@ -28,6 +40,24 @@ impl DeserializeError {
     ) -> Self {
         Self::UnexpectedElement {
             event_name: format!("{:?} (in {})", event, location),
+            span,
+        }
+    }
+
+    pub(crate) fn number_parse_failure(
+        value: &str,
+        span: saphyr_parser::Span,
+        _arg: &str,
+    ) -> DeserializeError {
+        Self::NumberParseError {
+            text: String::from(value),
+            span,
+        }
+    }
+
+    pub(crate) fn not_a_bool(value: &str, span: saphyr_parser::Span) -> DeserializeError {
+        Self::BoolParseError {
+            text: String::from(value),
             span,
         }
     }

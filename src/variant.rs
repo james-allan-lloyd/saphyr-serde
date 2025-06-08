@@ -25,12 +25,10 @@ impl<'de, 'a> EnumAccess<'de> for Enum<'a, 'de> {
     where
         V: DeserializeSeed<'de>,
     {
-        println!("deserialize val");
         let val = seed.deserialize(&mut *self.de)?;
         // match self.de.yaml.next().unwrap().unwrap() {
         //     (saphyr_parser::Event::Scalar(value, _, _, _), _span) =>
         // }
-        println!("deserialized val");
 
         Ok((val, self))
 
@@ -56,14 +54,18 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
         todo!()
     }
 
-    fn newtype_variant_seed<T>(self, seed: T) -> std::result::Result<T::Value, Self::Error>
+    fn newtype_variant_seed<T>(self, _seed: T) -> std::result::Result<T::Value, Self::Error>
     where
         T: DeserializeSeed<'de>,
     {
         todo!()
     }
 
-    fn tuple_variant<V>(self, len: usize, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn tuple_variant<V>(
+        self,
+        _len: usize,
+        _visitor: V,
+    ) -> std::result::Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
@@ -78,9 +80,6 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        println!("Deserialize map");
-        let result = serde::de::Deserializer::deserialize_map(self.de, visitor);
-        println!("map deserialized");
-        result
+        serde::de::Deserializer::deserialize_map(self.de, visitor)
     }
 }

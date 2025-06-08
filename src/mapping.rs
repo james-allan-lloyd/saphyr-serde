@@ -23,7 +23,6 @@ impl<'de, 'a> MapAccess<'de> for YamlMapping<'a, 'de> {
             self.de.yaml.next();
             Ok(None)
         } else {
-            println!("seed deserialize");
             seed.deserialize(&mut *self.de).map(Some)
         }
     }
