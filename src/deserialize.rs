@@ -67,6 +67,58 @@ impl<'de> YamlDeserializer<'de> {
         peek.and_then(|r| r.ok())
     }
 
+    pub fn start_stream(&mut self) -> Result<()> {
+        let (next_event, span) = self.next_event()?;
+        if !matches!(next_event, saphyr_parser::Event::StreamStart) {
+            Err(DeserializeError::unexpected(
+                &next_event,
+                span,
+                "start_stream",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn end_stream(&mut self) -> Result<()> {
+        let (next_event, span) = self.next_event()?;
+        if !matches!(next_event, saphyr_parser::Event::StreamEnd) {
+            Err(DeserializeError::unexpected(
+                &next_event,
+                span,
+                "end_stream",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn start_document(&mut self) -> Result<()> {
+        let (next_event, span) = self.next_event()?;
+        if !matches!(next_event, saphyr_parser::Event::DocumentStart(_)) {
+            Err(DeserializeError::unexpected(
+                &next_event,
+                span,
+                "start_document",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn end_document(&mut self) -> Result<()> {
+        let (next_event, span) = self.next_event()?;
+        if !matches!(next_event, saphyr_parser::Event::DocumentEnd) {
+            Err(DeserializeError::unexpected(
+                &next_event,
+                span,
+                "end_document",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn start_sequence(&mut self) -> Result<()> {
         let (next_event, span) = self.next_event()?;
         if !matches!(next_event, saphyr_parser::Event::SequenceStart(_, _)) {
@@ -91,6 +143,35 @@ impl<'de> YamlDeserializer<'de> {
             ))
         } else {
             println!("Pop seq end");
+            Ok(())
+        }
+    }
+
+    pub fn start_map(&mut self) -> Result<()> {
+        let (next_event, span) = self.next_event()?;
+        if !matches!(
+            next_event,
+            saphyr_parser::Event::MappingStart(_size, ref _option_tag),
+        ) {
+            Err(DeserializeError::unexpected(
+                &next_event,
+                span,
+                "deserialize_map",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn end_map(&mut self) -> Result<()> {
+        let (next_event, span) = self.next_event()?;
+        if !matches!(next_event, saphyr_parser::Event::MappingEnd,) {
+            Err(DeserializeError::unexpected(
+                &next_event,
+                span,
+                "deserialize_map",
+            ))
+        } else {
             Ok(())
         }
     }
@@ -146,11 +227,13 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
                 visitor.visit_str(&value)
             }
             (saphyr_parser::Event::MappingStart(_map, _), _span) => {
-                visitor.visit_map(YamlMapping::new(self))
+                let result = visitor.visit_map(YamlMapping::new(self));
+                self.end_map()?;
+                result
             }
             (saphyr_parser::Event::SequenceStart(_, _), _span) => {
                 let result = visitor.visit_seq(YamlSequence::new(self));
-                self.next_event()?;
+                self.end_sequence()?;
                 result
             }
             (event, span) => Err(DeserializeError::unexpected(
@@ -375,17 +458,10 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        match self.next_event()? {
-            (saphyr_parser::Event::MappingStart(_size, _option_tag), _span) => {
-                let value = visitor.visit_map(YamlMapping::new(self))?;
-                Ok(value)
-            }
-            (event, span) => Err(DeserializeError::unexpected(
-                &event,
-                span,
-                "deserialize_map",
-            )),
-        }
+        self.start_map()?;
+        let value = visitor.visit_map(YamlMapping::new(self))?;
+        self.end_map()?;
+        Ok(value)
     }
 
     fn deserialize_struct<V>(
@@ -416,15 +492,8 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
             }
             (saphyr_parser::Event::MappingStart(_, _), _span) => {
                 let value = visitor.visit_enum(Enum::new(self))?;
-
-                match self.next_event()? {
-                    (saphyr_parser::Event::MappingEnd, _span) => Ok(value),
-                    (event, span) => Err(DeserializeError::unexpected(
-                        &event,
-                        span,
-                        "deserialize_identifier",
-                    )),
-                }
+                self.end_map()?;
+                Ok(value)
             }
 
             (event, span) => Err(DeserializeError::unexpected(
@@ -450,13 +519,13 @@ where
     T: Deserialize<'a>,
 {
     let mut deserializer = YamlDeserializer::from_str(s);
-    let _stream_start = deserializer.yaml.next_event().unwrap().unwrap();
-    let _doc_start = deserializer.yaml.next_event().unwrap().unwrap();
+    // FIXME:
+    deserializer.start_stream()?;
+    deserializer.start_document()?;
     let t = T::deserialize(&mut deserializer)?;
-    match deserializer.yaml.next_event().unwrap().unwrap() {
-        (Event::DocumentEnd, _span) => Ok(t),
-        (event, span) => Err(DeserializeError::unexpected(&event, span, "from_str")),
-    }
+    deserializer.end_document()?;
+    deserializer.end_stream()?;
+    Ok(t)
 }
 
 #[cfg(test)]

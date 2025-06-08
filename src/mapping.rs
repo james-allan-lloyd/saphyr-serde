@@ -20,10 +20,7 @@ impl<'de, 'a> MapAccess<'de> for YamlMapping<'a, 'de> {
         K: DeserializeSeed<'de>,
     {
         match self.de.peek_event() {
-            Some((Event::MappingEnd, _span)) => {
-                self.de.next_event()?;
-                Ok(None)
-            }
+            Some((Event::MappingEnd, _span)) => Ok(None),
             _ => seed.deserialize(&mut *self.de).map(Some),
         }
     }
