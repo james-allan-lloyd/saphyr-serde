@@ -22,7 +22,7 @@ impl<'de, 'a> SeqAccess<'de> for YamlSequence<'a, 'de> {
     {
         match self.de.peek_event() {
             Some((Event::SequenceEnd, _span)) => {
-                self.de.next_event()?;
+                println!("end seq");
                 Ok(None)
             }
             _ => seed.deserialize(&mut *self.de).map(Some),

@@ -64,8 +64,35 @@ impl<'de> YamlDeserializer<'de> {
     pub fn peek_event(&mut self) -> Option<&(Event<'_>, saphyr_parser::Span)> {
         let peek = self.yaml.peek();
         println!("peek: {:?}", peek);
-        // TODO:
         peek.and_then(|r| r.ok())
+    }
+
+    pub fn start_sequence(&mut self) -> Result<()> {
+        let (next_event, span) = self.next_event()?;
+        if !matches!(next_event, saphyr_parser::Event::SequenceStart(_, _)) {
+            Err(DeserializeError::unexpected(
+                &next_event,
+                span,
+                "start_sequence",
+            ))
+        } else {
+            println!("Start sequence");
+            Ok(())
+        }
+    }
+
+    pub fn end_sequence(&mut self) -> Result<()> {
+        let (next_event, span) = self.next_event()?;
+        if next_event != saphyr_parser::Event::SequenceEnd {
+            Err(DeserializeError::unexpected(
+                &next_event,
+                span,
+                "end_sequence",
+            ))
+        } else {
+            println!("Pop seq end");
+            Ok(())
+        }
     }
 
     pub fn parse_scalar<T>(&mut self) -> Result<T>
@@ -109,17 +136,22 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
         V: Visitor<'de>,
     {
         match self.next_event()? {
-            (saphyr_parser::Event::Scalar(value, _, _, _), _span) => visitor.visit_str(&value),
+            (saphyr_parser::Event::Scalar(value, _, _, _), _span) => {
+                // TODO: have to detect and parse the string as a particular type
+                // 'n' => self.deserialize_unit(visitor),
+                // 't' | 'f' => self.deserialize_bool(visitor),
+                // '"' => self.deserialize_str(visitor),
+                // '0'..='9' => self.deserialize_u64(visitor),
+                // '-' => self.deserialize_i64(visitor),
+                visitor.visit_str(&value)
+            }
             (saphyr_parser::Event::MappingStart(_map, _), _span) => {
                 visitor.visit_map(YamlMapping::new(self))
             }
-            // 'n' => self.deserialize_unit(visitor),
-            // 't' | 'f' => self.deserialize_bool(visitor),
-            // '"' => self.deserialize_str(visitor),
-            // '0'..='9' => self.deserialize_u64(visitor),
-            // '-' => self.deserialize_i64(visitor),
             (saphyr_parser::Event::SequenceStart(_, _), _span) => {
-                visitor.visit_seq(YamlSequence::new(self))
+                let result = visitor.visit_seq(YamlSequence::new(self));
+                self.next_event()?;
+                result
             }
             (event, span) => Err(DeserializeError::unexpected(
                 &event,
@@ -127,6 +159,13 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
                 "deserialize_any",
             )),
         }
+    }
+
+    fn deserialize_ignored_any<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_any(visitor)
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -217,42 +256,30 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
-            (event, span) => Err(DeserializeError::unexpected(
-                &event,
-                span,
-                "deserialize_str",
-            )),
-        }
+        let (s, _span) = self.read_scalar_string()?;
+        visitor.visit_str(&s)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
-            (event, span) => Err(DeserializeError::unexpected(
-                &event,
-                span,
-                "deserialize_string",
-            )),
-        }
+        let (s, _span) = self.read_scalar_string()?;
+        visitor.visit_str(&s)
     }
 
     fn deserialize_bytes<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!("deserialize an decode a base64 string")
+        unimplemented!("deserialize an decode a base64 string")
     }
 
     fn deserialize_byte_buf<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!("deserialize an decode a base64 string")
+        unimplemented!("deserialize an decode a base64 string")
     }
 
     fn deserialize_option<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -272,93 +299,92 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
         }
     }
 
-    fn deserialize_unit<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
+    fn deserialize_unit<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        let null_regex = self.null_re.clone();
+        match self
+            .peek_scalar_string()
+            .map(|(s, _span)| null_regex.is_match(&s))
+        {
+            Some(true) => {
+                self.next_event()?;
+                visitor.visit_unit()
+            }
+            _ => Err(DeserializeError::TypeError),
+        }
     }
 
     fn deserialize_unit_struct<V>(
         self,
         _name: &'static str,
-        _visitor: V,
+        visitor: V,
     ) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        self.deserialize_unit(visitor)
     }
 
     fn deserialize_newtype_struct<V>(
         self,
         _name: &'static str,
-        _visitor: V,
+        visitor: V,
     ) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        visitor.visit_newtype_struct(self)
     }
 
     fn deserialize_seq<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::SequenceStart(_size, _option_tag), _span) => {
-                let value = visitor.visit_seq(YamlSequence::new(self))?;
-                Ok(value)
-            }
-            (event, span) => Err(DeserializeError::unexpected(
-                &event,
-                span,
-                "deserialize_seq",
-            )),
-        }
+        self.start_sequence()?;
+        let value = visitor.visit_seq(YamlSequence::new(self))?;
+        self.end_sequence()?;
+        Ok(value)
     }
 
     fn deserialize_tuple<V>(
         self,
         _len: usize,
-        _visitor: V,
+        visitor: V,
     ) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        self.deserialize_seq(visitor)
     }
 
     fn deserialize_tuple_struct<V>(
         self,
         _name: &'static str,
-        _len: usize,
-        _visitor: V,
+        len: usize,
+        visitor: V,
     ) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        self.deserialize_tuple(len, visitor)
     }
 
     fn deserialize_map<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        match self.yaml.next() {
-            Some(event) => match event {
-                Ok((saphyr_parser::Event::MappingStart(_size, _option_tag), _span)) => {
-                    let value = visitor.visit_map(YamlMapping::new(self))?;
-                    Ok(value)
-                }
-                Ok((event, _span)) => Err(DeserializeError::unexpected(
-                    &event,
-                    _span,
-                    "deserialize_map",
-                )),
-                _ => todo!(),
-            },
-            None => Err(DeserializeError::TypeError),
+        match self.next_event()? {
+            (saphyr_parser::Event::MappingStart(_size, _option_tag), _span) => {
+                let value = visitor.visit_map(YamlMapping::new(self))?;
+                Ok(value)
+            }
+            (event, span) => Err(DeserializeError::unexpected(
+                &event,
+                span,
+                "deserialize_map",
+            )),
         }
     }
 
@@ -383,7 +409,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        match self.yaml.next().unwrap().unwrap() {
+        match self.next_event()? {
             (saphyr_parser::Event::Scalar(key, _, _, _), _span) => {
                 let s = key.to_string();
                 visitor.visit_enum(s.into_deserializer())
@@ -391,7 +417,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
             (saphyr_parser::Event::MappingStart(_, _), _span) => {
                 let value = visitor.visit_enum(Enum::new(self))?;
 
-                match self.yaml.next().unwrap().unwrap() {
+                match self.next_event()? {
                     (saphyr_parser::Event::MappingEnd, _span) => Ok(value),
                     (event, span) => Err(DeserializeError::unexpected(
                         &event,
@@ -413,22 +439,8 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        match self.yaml.next().unwrap().unwrap() {
-            (saphyr_parser::Event::Scalar(key, _, _, _), _span) => visitor.visit_str(&key),
-            (event, span) => Err(DeserializeError::unexpected(
-                &event,
-                span,
-                "deserialize_identifier",
-            )),
-        }
-    }
-
-    fn deserialize_ignored_any<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
-    where
-        V: Visitor<'de>,
-    {
-        todo!()
-        // _visitor.visit_none()
+        let (s, _span) = self.read_scalar_string()?;
+        visitor.visit_str(&s)
     }
 }
 
@@ -645,6 +657,25 @@ value: ValueA
     }
 
     #[test]
+    fn it_reads_other_enum_types() {
+        #[derive(Deserialize)]
+        enum Test {
+            ValueA,
+            ValueB,
+        }
+
+        let _value: Test = from_str("ValueA").expect("Should deserialize");
+
+        #[derive(Deserialize, PartialEq, Debug)]
+        enum TupleVariant {
+            T(u8, u8),
+        }
+
+        let _value: TupleVariant = from_str("T:\n  - 27\n  - 32\n").expect("Should deserialize");
+        assert_eq!(_value, TupleVariant::T(27, 32));
+    }
+
+    #[test]
     fn it_reads_all_the_int_formats() {
         #[derive(Deserialize, PartialEq, Eq, Debug)]
         struct TestInts {
@@ -765,5 +796,59 @@ c: a
         // saphyr uses ~ for null values too
         let result: Test = from_str("opt: ").expect("Should deserialize");
         assert_eq!(result.opt, None);
+    }
+
+    #[test]
+    fn it_reads_unit() {
+        // no idea when this would be useful...
+        let _value: () = from_str("~").expect("Should deserialize");
+        let _value: () = from_str("null").expect("Should deserialize");
+        let _value: () = from_str("---\n").expect("Should deserialize");
+    }
+
+    #[test]
+    fn it_reads_unit_structs() {
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct Unit;
+
+        let _value: Unit = from_str("~").expect("Should deserialize");
+        let _value: Unit = from_str("null").expect("Should deserialize");
+        let _value: Unit = from_str("---\n").expect("Should deserialize");
+
+        assert_eq!(_value, Unit);
+    }
+
+    #[test]
+    fn it_reads_newtype_structs() {
+        #[derive(Debug, PartialEq, Deserialize)]
+        pub struct Test(u32);
+
+        let _value: Test = from_str("5").expect("Should deserialize");
+
+        assert_eq!(_value, Test(5));
+    }
+
+    #[test]
+    fn it_reads_tuples() {
+        let _value: (String, i32) = from_str("- abc\n- 27\n").expect("Should deserialize");
+
+        assert_eq!(_value.0, "abc");
+        assert_eq!(_value.1, 27);
+
+        from_str::<(String, i32)>("- abc\n- 27\n- too many values\n")
+            .expect_err("Should not deserialize");
+    }
+
+    #[test]
+    fn it_reads_tuple_structs() {
+        #[derive(Debug, PartialEq, Deserialize)]
+        pub struct Point(i32, i32);
+
+        let _value: Point = from_str("- 27\n- 32\n").expect("Should deserialize");
+
+        assert_eq!(_value, Point(27, 32));
+
+        from_str::<Point>("- 32\n- 27\n- 47\n").expect_err("Should not deserialize");
+        from_str::<Point>("- not a i32\n- 27\n").expect_err("Should not deserialize");
     }
 }
