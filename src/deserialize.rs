@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use regex::RegexSet;
+use regex::{Regex, RegexSet};
 use saphyr_parser::Event;
 use serde::{
     Deserialize,
@@ -18,6 +18,8 @@ pub struct YamlDeserializer<'de> {
     // This string starts with the input data and characters are truncated off
     // the beginning as data is parsed.
     yaml: saphyr_parser::Parser<'de, saphyr_parser::StrInput<'de>>,
+    boolean_re: RegexSet,
+    null_re: Regex,
 }
 
 impl<'de> YamlDeserializer<'de> {
@@ -27,8 +29,30 @@ impl<'de> YamlDeserializer<'de> {
     // deserializer can make one with `serde_json::Deserializer::from_str(...)`.
     pub fn from_str(input: &'de str) -> Self {
         let yaml = saphyr_parser::Parser::new_from_str(input);
+        let boolean_re = RegexSet::new([
+            r"^(y|Y|yes|Yes|YES|true|True|TRUE|on|On|ON|)$",
+            r"^(n|N|no|No|NO|false|False|FALSE|off|Off|OFF)$",
+        ])
+        .unwrap();
+        let null_re = Regex::new(r"^(null|Null|NULL|~)$").unwrap();
+        YamlDeserializer {
+            yaml,
+            boolean_re,
+            null_re,
+        }
+    }
 
-        YamlDeserializer { yaml }
+    pub fn read_boolean(&mut self) -> Result<bool> {
+        let regex_set = self.boolean_re.clone();
+        let (s, span) = self.read_scalar_string()?;
+        let matches = regex_set.matches(&s.clone());
+        if matches.matched(0) {
+            Ok(true)
+        } else if matches.matched(1) {
+            Ok(false)
+        } else {
+            Err(DeserializeError::not_a_bool(&s, span))
+        }
     }
 
     pub fn next_event(&mut self) -> Result<(Event<'de>, saphyr_parser::Span)> {
@@ -109,23 +133,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        // FIXME: don't instantiate here
-        let set = RegexSet::new([
-            r"^(y|Y|yes|Yes|YES|true|True|TRUE|on|On|ON|)$",
-            r"^(n|N|no|No|NO|false|False|FALSE|off|Off|OFF)$",
-        ])
-        .unwrap();
-
-        let (s, span) = self.read_scalar_string()?;
-
-        let matches = set.matches(&s);
-        if matches.matched(0) {
-            visitor.visit_bool(true)
-        } else if matches.matched(1) {
-            visitor.visit_bool(false)
-        } else {
-            Err(DeserializeError::not_a_bool(&s, span))
-        }
+        visitor.visit_bool(self.read_boolean()?)
     }
 
     fn deserialize_i8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -237,21 +245,25 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        todo!("deserialize an decode a base64 string")
     }
 
     fn deserialize_byte_buf<V>(self, _visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        todo!("deserialize an decode a base64 string")
     }
 
     fn deserialize_option<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        match self.peek_scalar_string().map(|(s, _span)| s == "null") {
+        let null_regex = self.null_re.clone();
+        match self
+            .peek_scalar_string()
+            .map(|(s, _span)| null_regex.is_match(&s))
+        {
             Some(true) => {
                 self.next_event()?;
                 visitor.visit_none()
@@ -748,6 +760,10 @@ c: a
         assert_eq!(result.opt, Some(String::from("foo")));
 
         let result: Test = from_str("opt: null").expect("Should deserialize");
+        assert_eq!(result.opt, None);
+
+        // saphyr uses ~ for null values too
+        let result: Test = from_str("opt: ").expect("Should deserialize");
         assert_eq!(result.opt, None);
     }
 }
