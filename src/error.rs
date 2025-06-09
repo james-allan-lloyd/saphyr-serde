@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum DeserializeError {
     #[error("Trailing characters")]
     TrailingCharacters,

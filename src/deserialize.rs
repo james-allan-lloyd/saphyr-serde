@@ -519,7 +519,6 @@ where
     T: Deserialize<'a>,
 {
     let mut deserializer = YamlDeserializer::from_str(s);
-    // FIXME:
     deserializer.start_stream()?;
     deserializer.start_document()?;
     let t = T::deserialize(&mut deserializer)?;
@@ -536,7 +535,7 @@ mod test {
     use serde::Deserialize;
     use serde_json::json;
 
-    use crate::deserialize::from_str;
+    use crate::{deserialize::from_str, error::DeserializeError};
 
     #[derive(Deserialize, PartialEq, Eq, Debug)]
     struct Point {
@@ -919,5 +918,32 @@ c: a
 
         from_str::<Point>("- 32\n- 27\n- 47\n").expect_err("Should not deserialize");
         from_str::<Point>("- not a i32\n- 27\n").expect_err("Should not deserialize");
+    }
+
+    #[test]
+    fn it_reads_internally_tagged_enums() {
+        #[derive(Deserialize, PartialEq, Debug)]
+        #[serde(tag = "type")]
+        enum Message {
+            Request { id: String, method: String },
+            Response { id: String, result: String },
+        }
+
+        let _value: Message =
+            from_str("type: Request\nid: foo\nmethod: PUT").expect("Should deserialize");
+
+        assert_eq!(
+            _value,
+            Message::Request {
+                id: String::from("foo"),
+                method: String::from("PUT")
+            }
+        );
+
+        let err: DeserializeError =
+            from_str::<Message>("type: UnknownVariant\nid: foo\nmethod: PUT")
+                .expect_err("Should not deserialize");
+
+        assert_eq!(err, DeserializeError::TypeError);
     }
 }
