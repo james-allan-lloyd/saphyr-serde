@@ -1,14 +1,14 @@
 use saphyr_parser::Event;
 use serde::de::{DeserializeSeed, SeqAccess};
 
-use crate::{de::YamlDeserializer, error::DeserializeError};
+use crate::{de::Deserializer, error::DeserializeError};
 
 pub struct YamlSequence<'a, 'de: 'a> {
-    de: &'a mut YamlDeserializer<'de>,
+    de: &'a mut Deserializer<'de>,
 }
 
 impl<'a, 'de> YamlSequence<'a, 'de> {
-    pub(crate) fn new(de: &'a mut YamlDeserializer<'de>) -> Self {
+    pub(crate) fn new(de: &'a mut Deserializer<'de>) -> Self {
         Self { de }
     }
 }

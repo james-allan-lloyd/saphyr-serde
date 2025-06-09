@@ -1,13 +1,13 @@
 use serde::de::{DeserializeSeed, EnumAccess, VariantAccess};
 
-use crate::{de::YamlDeserializer, error::DeserializeError};
+use crate::{de::Deserializer, error::DeserializeError};
 
 pub(crate) struct Enum<'a, 'de: 'a> {
-    de: &'a mut YamlDeserializer<'de>,
+    de: &'a mut Deserializer<'de>,
 }
 
 impl<'a, 'de> Enum<'a, 'de> {
-    pub fn new(de: &'a mut YamlDeserializer<'de>) -> Self {
+    pub fn new(de: &'a mut Deserializer<'de>) -> Self {
         Enum { de }
     }
 }
