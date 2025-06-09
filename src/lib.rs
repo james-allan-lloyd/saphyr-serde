@@ -1,4 +1,4 @@
-mod deserialize;
+mod de;
 mod error;
 mod mapping;
 mod seq;

@@ -1,7 +1,7 @@
 use saphyr_parser::Event;
 use serde::de::{DeserializeSeed, MapAccess};
 
-use crate::{deserialize::YamlDeserializer, error::DeserializeError};
+use crate::{de::YamlDeserializer, error::DeserializeError};
 
 pub struct YamlMapping<'a, 'de: 'a> {
     de: &'a mut YamlDeserializer<'de>,

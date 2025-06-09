@@ -533,7 +533,7 @@ mod test {
     use serde::Deserialize;
     use serde_json::json;
 
-    use crate::{deserialize::from_str, error::DeserializeError};
+    use crate::{de::from_str, error::DeserializeError};
 
     const ADDRESS_YAML_STR: &str = r###"
 street: Kerkstraat
@@ -566,7 +566,7 @@ y: 45
 
         assert_eq!(
             _err,
-            DeserializeError::SerdeError(String::from("Missing field `y`"))
+            DeserializeError::SerdeError(String::from("missing field `y`"))
         );
     }
 

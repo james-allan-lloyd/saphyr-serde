@@ -1,6 +1,6 @@
 use serde::de::{DeserializeSeed, EnumAccess, VariantAccess};
 
-use crate::{deserialize::YamlDeserializer, error::DeserializeError};
+use crate::{de::YamlDeserializer, error::DeserializeError};
 
 pub(crate) struct Enum<'a, 'de: 'a> {
     de: &'a mut YamlDeserializer<'de>,
