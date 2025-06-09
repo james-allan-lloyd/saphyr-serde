@@ -91,16 +91,13 @@ impl<'de> Deserializer<'de> {
         }
     }
 
-    pub fn start_document(&mut self) -> Result<()> {
-        let (next_event, span) = self.next_event()?;
-        if !matches!(next_event, saphyr_parser::Event::DocumentStart(_)) {
-            Err(DeserializeError::unexpected(
-                &next_event,
-                span,
-                "start_document",
-            ))
+    pub fn start_document(&mut self) -> Result<bool> {
+        let peek = self.peek_event();
+        if matches!(peek, Some((saphyr_parser::Event::DocumentStart(_), _))) {
+            self.next_event()?;
+            Ok(true)
         } else {
-            Ok(())
+            Ok(false)
         }
     }
 
@@ -376,7 +373,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
                 self.next_event()?;
                 visitor.visit_none()
             }
-            _ => visitor.visit_some(self),
+            Some(false) => visitor.visit_some(self),
+            None => {
+                // self.next_event()?;
+                visitor.visit_none()
+            }
         }
     }
 
@@ -518,9 +519,11 @@ where
 {
     let mut deserializer = Deserializer::from_str(s);
     deserializer.start_stream()?;
-    deserializer.start_document()?;
+    let has_document = deserializer.start_document()?;
     let t = T::deserialize(&mut deserializer)?;
-    deserializer.end_document()?;
+    if has_document {
+        deserializer.end_document()?;
+    }
     deserializer.end_stream()?;
     Ok(t)
 }

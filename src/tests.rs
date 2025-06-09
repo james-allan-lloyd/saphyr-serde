@@ -17,6 +17,33 @@ struct Address {
 }
 
 #[test]
+fn it_deserializes_empty_string() {
+    #[derive(Deserialize, PartialEq, Eq, Debug)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+
+    let result: Option<Point> = from_str("").expect("Should deserialize");
+
+    assert_eq!(result, None);
+}
+
+#[test]
+fn it_deserializes_empty_with_default() {
+    #[derive(Deserialize, PartialEq, Eq, Debug, Default)]
+    #[serde(default)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+
+    let result: Option<Point> = from_str("{}").expect("Should deserialize");
+
+    assert_eq!(result, Some(Point { x: 0, y: 0 }));
+}
+
+#[test]
 fn it_deserializes_mappings() {
     #[derive(Deserialize, PartialEq, Eq, Debug)]
     struct Point {
