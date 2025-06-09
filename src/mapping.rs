@@ -29,7 +29,6 @@ impl<'de, 'a> MapAccess<'de> for YamlMapping<'a, 'de> {
     where
         V: DeserializeSeed<'de>,
     {
-        // TODO: check not at end of mapping?
         seed.deserialize(&mut *self.de)
     }
 }

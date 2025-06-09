@@ -57,13 +57,11 @@ impl<'de> YamlDeserializer<'de> {
 
     pub fn next_event(&mut self) -> Result<(Event<'de>, saphyr_parser::Span)> {
         let next = self.yaml.next_event();
-        println!("next: {:?}", next);
         Ok(next.ok_or(DeserializeError::EarlyTermination)??)
     }
 
     pub fn peek_event(&mut self) -> Option<&(Event<'_>, saphyr_parser::Span)> {
         let peek = self.yaml.peek();
-        println!("peek: {:?}", peek);
         peek.and_then(|r| r.ok())
     }
 
@@ -128,7 +126,6 @@ impl<'de> YamlDeserializer<'de> {
                 "start_sequence",
             ))
         } else {
-            println!("Start sequence");
             Ok(())
         }
     }
@@ -142,7 +139,6 @@ impl<'de> YamlDeserializer<'de> {
                 "end_sequence",
             ))
         } else {
-            println!("Pop seq end");
             Ok(())
         }
     }
@@ -153,11 +149,7 @@ impl<'de> YamlDeserializer<'de> {
             next_event,
             saphyr_parser::Event::MappingStart(_size, ref _option_tag),
         ) {
-            Err(DeserializeError::unexpected(
-                &next_event,
-                span,
-                "deserialize_map",
-            ))
+            Err(DeserializeError::unexpected(&next_event, span, "start_map"))
         } else {
             Ok(())
         }
@@ -166,14 +158,20 @@ impl<'de> YamlDeserializer<'de> {
     pub fn end_map(&mut self) -> Result<()> {
         let (next_event, span) = self.next_event()?;
         if !matches!(next_event, saphyr_parser::Event::MappingEnd,) {
-            Err(DeserializeError::unexpected(
-                &next_event,
-                span,
-                "deserialize_map",
-            ))
+            Err(DeserializeError::unexpected(&next_event, span, "end_map"))
         } else {
             Ok(())
         }
+    }
+
+    pub fn consume_map(&mut self) -> Result<()> {
+        loop {
+            let (next_event, _span) = self.next_event()?;
+            if matches!(next_event, saphyr_parser::Event::MappingEnd) {
+                break;
+            }
+        }
+        Ok(())
     }
 
     pub fn parse_scalar<T>(&mut self) -> Result<T>
@@ -228,7 +226,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut YamlDeserializer<'de> {
             }
             (saphyr_parser::Event::MappingStart(_map, _), _span) => {
                 let result = visitor.visit_map(YamlMapping::new(self));
-                self.end_map()?;
+                self.consume_map()?; // sometimes serde doesn't read the whole map?
                 result
             }
             (saphyr_parser::Event::SequenceStart(_, _), _span) => {
@@ -537,23 +535,10 @@ mod test {
 
     use crate::{deserialize::from_str, error::DeserializeError};
 
-    #[derive(Deserialize, PartialEq, Eq, Debug)]
-    struct Point {
-        x: i32,
-        y: i32,
-    }
-
-    const POINT_YAML_STR: &str = r###"
-x: 10
-y: 45
+    const ADDRESS_YAML_STR: &str = r###"
+street: Kerkstraat
+state: Noord Holland
 "###;
-
-    #[test]
-    fn it_deserializes_yaml() {
-        let result: Point = from_str(POINT_YAML_STR).expect("Should deserialize");
-
-        assert_eq!(result, Point { x: 10, y: 45 });
-    }
 
     #[derive(Deserialize, PartialEq, Eq, Debug)]
     struct Address {
@@ -561,10 +546,29 @@ y: 45
         state: String,
     }
 
-    const ADDRESS_YAML_STR: &str = r###"
-street: Kerkstraat
-state: Noord Holland
+    #[test]
+    fn it_deserializes_mappings() {
+        #[derive(Deserialize, PartialEq, Eq, Debug)]
+        struct Point {
+            x: i32,
+            y: i32,
+        }
+
+        const POINT_YAML_STR: &str = r###"
+x: 10
+y: 45
 "###;
+        let result: Point = from_str(POINT_YAML_STR).expect("Should deserialize");
+
+        assert_eq!(result, Point { x: 10, y: 45 });
+
+        let _err = from_str::<Point>("x: 10\nz: 20").expect_err("Should not deserialize");
+
+        assert_eq!(
+            _err,
+            DeserializeError::SerdeError(String::from("Missing field `y`"))
+        );
+    }
 
     #[test]
     fn it_deserializes_strings() {
@@ -589,19 +593,19 @@ state: Noord Holland
         );
     }
 
-    #[derive(Deserialize, Debug, PartialEq, Eq)]
-    struct NestedAddress {
-        address: Address,
-    }
+    #[test]
+    fn it_reads_nested_values() {
+        #[derive(Deserialize, Debug, PartialEq, Eq)]
+        struct NestedAddress {
+            address: Address,
+        }
 
-    const NESTED_ADDRESS_YAML_STR: &str = r###"
+        const NESTED_ADDRESS_YAML_STR: &str = r###"
 address:
     street: Kerkstraat
     state: Noord Holland
 "###;
 
-    #[test]
-    fn it_reads_nested_values() {
         let result: serde_json::Value =
             from_str(NESTED_ADDRESS_YAML_STR).expect("Should deserialize");
 
@@ -623,15 +627,15 @@ address:
         );
     }
 
-    const SEQUENCE_ADDRESS_YAML_STR: &str = r###"
+    #[test]
+    fn it_reads_sequences() {
+        const SEQUENCE_ADDRESS_YAML_STR: &str = r###"
 - street: Kerkstraat
   state: Noord Holland
 - street: Main Street
   state: New York
 "###;
 
-    #[test]
-    fn it_reads_sequences() {
         let result: serde_json::Value =
             from_str(SEQUENCE_ADDRESS_YAML_STR).expect("Should deserialize");
 
@@ -661,23 +665,23 @@ address:
         );
     }
 
-    #[derive(Deserialize, PartialEq, Eq, Debug)]
-    enum TestEnum {
-        ValueA,
-        ValueB,
-    }
+    #[test]
+    fn it_reads_enums() {
+        #[derive(Deserialize, PartialEq, Eq, Debug)]
+        enum TestEnum {
+            ValueA,
+            ValueB,
+        }
 
-    #[derive(Deserialize, PartialEq, Eq, Debug)]
-    struct StructWithEnum {
-        value: TestEnum,
-    }
+        #[derive(Deserialize, PartialEq, Eq, Debug)]
+        struct StructWithEnum {
+            value: TestEnum,
+        }
 
-    const STRUCT_WITH_ENUM_YAML_STR: &str = r###"
+        const STRUCT_WITH_ENUM_YAML_STR: &str = r###"
 value: ValueA
 "###;
 
-    #[test]
-    fn it_reads_enums() {
         let result: StructWithEnum =
             from_str(STRUCT_WITH_ENUM_YAML_STR).expect("Should deserialize");
 
@@ -689,13 +693,15 @@ value: ValueA
         );
     }
 
-    #[derive(Deserialize, PartialEq, Eq, Debug)]
-    enum TestExternallyTaggedEnum {
-        ValueA { id: String, method: String },
-        ValueB { id: String, result: String },
-    }
+    #[test]
+    fn it_reads_externally_tagged_enums() {
+        #[derive(Deserialize, PartialEq, Eq, Debug)]
+        enum TestExternallyTaggedEnum {
+            ValueA { id: String, method: String },
+            ValueB { id: String, result: String },
+        }
 
-    const EXTERNALLY_TAGGED_ENUM_YAML_STR: &str = r###"
+        const EXTERNALLY_TAGGED_ENUM_YAML_STR: &str = r###"
 - ValueA:
     id: foo
     method: bar
@@ -703,9 +709,6 @@ value: ValueA
     id: baz
     result: passed
 "###;
-
-    #[test]
-    fn it_reads_externally_tagged_enums() {
         let result: Vec<TestExternallyTaggedEnum> =
             from_str(EXTERNALLY_TAGGED_ENUM_YAML_STR).expect("Should deserialize");
 
@@ -944,6 +947,12 @@ c: a
             from_str::<Message>("type: UnknownVariant\nid: foo\nmethod: PUT")
                 .expect_err("Should not deserialize");
 
-        assert_eq!(err, DeserializeError::TypeError);
+        assert_eq!(
+            err,
+            // ("unknown variant `UnknownVariant`, expected `Request` or `Response`")
+            DeserializeError::SerdeError(String::from(
+                "unknown variant `UnknownVariant`, expected `Request` or `Response`"
+            ))
+        );
     }
 }
