@@ -16,16 +16,18 @@ pub enum DeserializeError {
         span: saphyr_parser::Span,
     },
 
-    #[error("Serde error")]
+    #[error("Error during deserialization: {0}")]
     SerdeError(String),
 
-    #[error("Unable to parse {text} as a number at line {}, column {}", .span.start.line(), .span.start.col())]
+    #[error("Unable to parse {text} as a {type_string} at line {}, column {}: {err}", .span.start.line(), .span.start.col())]
     NumberParseError {
         text: String,
+        err: String,
+        type_string: String,
         span: saphyr_parser::Span,
     },
 
-    #[error("Unable to parse {text} as a number at line {}, column {}", .span.start.line(), .span.start.col())]
+    #[error("Unable to parse {text} as a boolean at line {}, column {}", .span.start.line(), .span.start.col())]
     BoolParseError {
         text: String,
         span: saphyr_parser::Span,
@@ -53,10 +55,13 @@ impl DeserializeError {
     pub(crate) fn number_parse_failure(
         value: &str,
         span: saphyr_parser::Span,
-        _arg: &str,
+        type_string: &str,
+        parse_error: &str,
     ) -> DeserializeError {
         Self::NumberParseError {
             text: String::from(value),
+            err: String::from(parse_error),
+            type_string: String::from(type_string),
             span,
         }
     }

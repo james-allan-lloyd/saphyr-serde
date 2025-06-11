@@ -23,10 +23,7 @@ pub struct Deserializer<'de> {
 }
 
 impl<'de> Deserializer<'de> {
-    // By convention, `Deserializer` constructors are named like `from_xyz`.
-    // That way basic use cases are satisfied by something like
-    // `serde_json::from_str(...)` while advanced use cases that require a
-    // deserializer can make one with `serde_json::Deserializer::from_str(...)`.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(input: &'de str) -> Self {
         let yaml = saphyr_parser::Parser::new_from_str(input);
         let boolean_re = RegexSet::new([
@@ -140,15 +137,19 @@ impl<'de> Deserializer<'de> {
         }
     }
 
-    pub fn start_map(&mut self) -> Result<()> {
-        let (next_event, span) = self.next_event()?;
-        if !matches!(
-            next_event,
-            saphyr_parser::Event::MappingStart(_size, ref _option_tag),
+    pub fn start_map(&mut self) -> Result<bool> {
+        let peek = self.peek_event();
+        if matches!(
+            peek,
+            Some((
+                saphyr_parser::Event::MappingStart(_size, _option_tag),
+                _span
+            ))
         ) {
-            Err(DeserializeError::unexpected(&next_event, span, "start_map"))
+            self.next_event()?;
+            Ok(true)
         } else {
-            Ok(())
+            Ok(false)
         }
     }
 
@@ -171,14 +172,16 @@ impl<'de> Deserializer<'de> {
         Ok(())
     }
 
-    pub fn parse_scalar<T>(&mut self) -> Result<T>
+    pub fn parse_scalar<T>(&mut self, type_string: &str) -> Result<T>
     where
         T: FromStr,
+        <T as FromStr>::Err: std::fmt::Display,
     {
         let (s, span) = self.read_scalar_string()?;
         let parse_result = s.parse::<T>();
-        parse_result
-            .map_err(|_e| DeserializeError::number_parse_failure(&s, span, "parse_unsigned"))
+        parse_result.map_err(|_e| {
+            DeserializeError::number_parse_failure(&s, span, type_string, &format!("{}", _e))
+        })
     }
 
     pub fn read_scalar_string(
@@ -257,70 +260,70 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i8(self.parse_scalar()?)
+        visitor.visit_i8(self.parse_scalar("i8")?)
     }
 
     fn deserialize_i16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i16(self.parse_scalar()?)
+        visitor.visit_i16(self.parse_scalar("i16")?)
     }
 
     fn deserialize_i32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i32(self.parse_scalar()?)
+        visitor.visit_i32(self.parse_scalar("i32")?)
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i64(self.parse_scalar()?)
+        visitor.visit_i64(self.parse_scalar("i64")?)
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u8(self.parse_scalar()?)
+        visitor.visit_u8(self.parse_scalar("u8")?)
     }
 
     fn deserialize_u16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u16(self.parse_scalar()?)
+        visitor.visit_u16(self.parse_scalar("u16")?)
     }
 
     fn deserialize_u32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u32(self.parse_scalar()?)
+        visitor.visit_u32(self.parse_scalar("u32")?)
     }
 
     fn deserialize_u64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u64(self.parse_scalar()?)
+        visitor.visit_u64(self.parse_scalar("u64")?)
     }
 
     fn deserialize_f32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_f32(self.parse_scalar()?)
+        visitor.visit_f32(self.parse_scalar("f32")?)
     }
 
     fn deserialize_f64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_f64(self.parse_scalar()?)
+        visitor.visit_f64(self.parse_scalar("f64")?)
     }
 
     fn deserialize_char<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -364,6 +367,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
+        println!("deserialize_option");
         let null_regex = self.null_re.clone();
         match self
             .peek_scalar_string()
@@ -373,11 +377,11 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
                 self.next_event()?;
                 visitor.visit_none()
             }
-            Some(false) => visitor.visit_some(self),
-            None => {
-                // self.next_event()?;
-                visitor.visit_none()
-            }
+            _ => visitor.visit_some(self), // Some(false) => visitor.visit_some(self),
+                                           // None => {
+                                           //     // self.next_event()?;
+                                           //     visitor.visit_none()
+                                           // }
         }
     }
 
@@ -457,10 +461,14 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        self.start_map()?;
-        let value = visitor.visit_map(YamlMapping::new(self))?;
-        self.end_map()?;
-        Ok(value)
+        println!("deserialize_map");
+        if self.start_map()? {
+            let value = visitor.visit_map(YamlMapping::new(self))?;
+            self.end_map()?;
+            Ok(value)
+        } else {
+            visitor.visit_map(YamlMapping::empty(self))
+        }
     }
 
     fn deserialize_struct<V>(
@@ -472,6 +480,7 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
+        println!("deserialize_struct");
         self.deserialize_map(visitor)
     }
 

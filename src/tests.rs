@@ -18,7 +18,8 @@ struct Address {
 
 #[test]
 fn it_deserializes_empty_string() {
-    #[derive(Deserialize, PartialEq, Eq, Debug)]
+    #[derive(Deserialize, PartialEq, Eq, Debug, Default)]
+    #[serde(default)]
     struct Point {
         x: i32,
         y: i32,
@@ -26,7 +27,7 @@ fn it_deserializes_empty_string() {
 
     let result: Option<Point> = from_str("").expect("Should deserialize");
 
-    assert_eq!(result, None);
+    assert_eq!(result, Some(Point::default()));
 }
 
 #[test]
@@ -38,9 +39,9 @@ fn it_deserializes_empty_with_default() {
         y: i32,
     }
 
-    let result: Option<Point> = from_str("{}").expect("Should deserialize");
+    let result: Point = from_str("x: 27\nz: 0").expect("Should deserialize");
 
-    assert_eq!(result, Some(Point { x: 0, y: 0 }));
+    assert_eq!(result, Point { x: 27, y: 0 });
 }
 
 #[test]

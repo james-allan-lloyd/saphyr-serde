@@ -5,10 +5,15 @@ use crate::{de::Deserializer, error::DeserializeError};
 
 pub struct YamlMapping<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
+    empty: bool,
 }
 impl<'a, 'de> YamlMapping<'a, 'de> {
     pub(crate) fn new(de: &'a mut Deserializer<'de>) -> Self {
-        Self { de }
+        Self { de, empty: false }
+    }
+
+    pub(crate) fn empty(de: &'a mut Deserializer<'de>) -> Self {
+        Self { de, empty: true }
     }
 }
 
@@ -19,9 +24,15 @@ impl<'de, 'a> MapAccess<'de> for YamlMapping<'a, 'de> {
     where
         K: DeserializeSeed<'de>,
     {
-        match self.de.peek_event() {
-            Some((Event::MappingEnd, _span)) => Ok(None),
-            _ => seed.deserialize(&mut *self.de).map(Some),
+        if self.empty {
+            Ok(None)
+        } else {
+            match self.de.peek_event() {
+                Some((Event::DocumentEnd, _span)) => Ok(None),
+                Some((Event::StreamEnd, _span)) => Ok(None),
+                Some((Event::MappingEnd, _span)) => Ok(None),
+                _ => seed.deserialize(&mut *self.de).map(Some),
+            }
         }
     }
 
