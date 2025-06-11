@@ -367,7 +367,6 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        println!("deserialize_option");
         let null_regex = self.null_re.clone();
         match self
             .peek_scalar_string()
@@ -461,7 +460,6 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        println!("deserialize_map");
         if self.start_map()? {
             let value = visitor.visit_map(YamlMapping::new(self))?;
             self.end_map()?;
@@ -480,7 +478,6 @@ impl<'de> serde::de::Deserializer<'de> for &mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        println!("deserialize_struct");
         self.deserialize_map(visitor)
     }
 
