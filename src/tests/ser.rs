@@ -14,11 +14,10 @@ fn test_struct() {
         int: 1,
         seq: vec!["a", "b"],
     };
-    let expected = r#"""
-int: 1
+    let expected = r###"int: 1
 seq:
   - a
   - b
-"""#;
+"###;
     assert_eq!(to_string(&test).unwrap(), expected);
 }

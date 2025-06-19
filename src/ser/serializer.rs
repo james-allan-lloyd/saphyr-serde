@@ -3,6 +3,7 @@ use serde::{Serialize, ser};
 
 pub struct Serializer {
     output: String,
+    indent: i32,
 }
 
 pub type Result<T> = std::result::Result<T, SerializeError>;
@@ -10,9 +11,27 @@ pub type Result<T> = std::result::Result<T, SerializeError>;
 pub fn to_string<T: Serialize>(value: &T) -> Result<String> {
     let mut serializer = Serializer {
         output: String::new(),
+        indent: 0,
     };
     value.serialize(&mut serializer)?;
     Ok(serializer.output)
+}
+
+impl Serializer {
+    fn newline_with_indent(&mut self) {
+        self.output += "\n";
+        self.output
+            .push_str(&(" ".to_string().repeat(self.indent as usize * 2)));
+    }
+
+    fn increase_indent(&mut self) {
+        self.indent += 1;
+    }
+
+    fn decrease_indent(&mut self) {
+        self.indent -= 1;
+        assert!(self.indent >= 0);
+    }
 }
 
 impl<'a> ser::Serializer for &'a mut Serializer {
@@ -62,12 +81,17 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         todo!()
     }
 
-    fn serialize_u32(self, _v: u32) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+    fn serialize_u32(self, v: u32) -> std::result::Result<Self::Ok, Self::Error> {
+        if self.output.ends_with(':') {
+            self.output += " ";
+        }
+        self.output += &v.to_string();
+        Ok(())
     }
 
-    fn serialize_u64(self, _v: u64) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+    fn serialize_u64(self, v: u64) -> std::result::Result<Self::Ok, Self::Error> {
+        self.output += &v.to_string();
+        Ok(())
     }
 
     fn serialize_f32(self, _v: f32) -> std::result::Result<Self::Ok, Self::Error> {
@@ -82,8 +106,12 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         todo!()
     }
 
-    fn serialize_str(self, _v: &str) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+    fn serialize_str(self, v: &str) -> std::result::Result<Self::Ok, Self::Error> {
+        // TODO: what are the cases where we don't need to quote?
+        // self.output += "\"";
+        self.output += v;
+        // self.output += "\"";
+        Ok(())
     }
 
     fn serialize_bytes(self, _v: &[u8]) -> std::result::Result<Self::Ok, Self::Error> {
@@ -149,7 +177,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self,
         _len: Option<usize>,
     ) -> std::result::Result<Self::SerializeSeq, Self::Error> {
-        todo!()
+        Ok(self)
     }
 
     fn serialize_tuple(
@@ -181,7 +209,8 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self,
         _len: Option<usize>,
     ) -> std::result::Result<Self::SerializeMap, Self::Error> {
-        todo!()
+        self.increase_indent();
+        Ok(self)
     }
 
     fn serialize_struct(
@@ -189,7 +218,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         _name: &'static str,
         _len: usize,
     ) -> std::result::Result<Self::SerializeStruct, Self::Error> {
-        todo!()
+        self.serialize_map(Some(_len))
     }
 
     fn serialize_struct_variant(
@@ -207,17 +236,21 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     type Ok = ();
     type Error = SerializeError;
 
-    fn serialize_element<T>(&mut self, _value: &T) -> std::result::Result<(), Self::Error>
+    fn serialize_element<T>(&mut self, value: &T) -> std::result::Result<(), Self::Error>
     where
         T: ?Sized + Serialize,
     {
-        todo!()
+        self.newline_with_indent();
+        self.output += "- ";
+        value.serialize(&mut **self)?;
+        Ok(())
     }
 
     fn end(self) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        Ok(())
     }
 }
+
 impl<'a> ser::SerializeTuple for &'a mut Serializer {
     type Ok = ();
     type Error = SerializeError;
@@ -233,6 +266,7 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
         todo!()
     }
 }
+
 impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
     type Ok = ();
     type Error = SerializeError;
@@ -291,17 +325,22 @@ impl<'a> ser::SerializeStruct for &'a mut Serializer {
 
     fn serialize_field<T>(
         &mut self,
-        _key: &'static str,
-        _value: &T,
+        key: &'static str,
+        value: &T,
     ) -> std::result::Result<(), Self::Error>
     where
         T: ?Sized + Serialize,
     {
-        todo!()
+        key.serialize(&mut **self)?;
+        self.output += ":";
+        value.serialize(&mut **self)?;
+        self.output += "\n";
+        Ok(())
     }
 
     fn end(self) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        self.decrease_indent();
+        Ok(())
     }
 }
 impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
