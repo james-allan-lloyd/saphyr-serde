@@ -3,6 +3,53 @@ use std::fmt::Display;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
+pub enum SerializeError {}
+
+impl serde::ser::Error for SerializeError {
+    #[doc = r" Used when a [`Serialize`] implementation encounters any error"]
+    #[doc = r" while serializing a type."]
+    #[doc = r""]
+    #[doc = r" The message should not be capitalized and should not end with a"]
+    #[doc = r" period."]
+    #[doc = r""]
+    #[doc = r" For example, a filesystem [`Path`] may refuse to serialize"]
+    #[doc = r" itself if it contains invalid UTF-8 data."]
+    #[doc = r""]
+    #[doc = r" ```edition2021"]
+    #[doc = r" # struct Path;"]
+    #[doc = r" #"]
+    #[doc = r" # impl Path {"]
+    #[doc = r" #     fn to_str(&self) -> Option<&str> {"]
+    #[doc = r" #         unimplemented!()"]
+    #[doc = r" #     }"]
+    #[doc = r" # }"]
+    #[doc = r" #"]
+    #[doc = r" use serde::ser::{self, Serialize, Serializer};"]
+    #[doc = r""]
+    #[doc = r" impl Serialize for Path {"]
+    #[doc = r"     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>"]
+    #[doc = r"     where"]
+    #[doc = r"         S: Serializer,"]
+    #[doc = r"     {"]
+    #[doc = r"         match self.to_str() {"]
+    #[doc = r"             Some(s) => serializer.serialize_str(s),"]
+    #[doc = r#"             None => Err(ser::Error::custom("path contains invalid UTF-8 characters")),"#]
+    #[doc = r"         }"]
+    #[doc = r"     }"]
+    #[doc = r" }"]
+    #[doc = r" ```"]
+    #[doc = r""]
+    #[doc = r" [`Path`]: std::path::Path"]
+    #[doc = r" [`Serialize`]: crate::Serialize"]
+    fn custom<T>(_msg: T) -> Self
+    where
+        T: Display,
+    {
+        todo!()
+    }
+}
+
+#[derive(Error, Debug, PartialEq)]
 pub enum DeserializeError {
     #[error("Trailing characters")]
     TrailingCharacters,

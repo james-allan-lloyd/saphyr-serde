@@ -1,7 +1,5 @@
 pub mod de;
 pub mod error;
-mod mapping;
-mod seq;
+pub mod ser;
 #[cfg(test)]
 mod tests;
-mod variant;
