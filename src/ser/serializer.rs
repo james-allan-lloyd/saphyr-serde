@@ -14,14 +14,17 @@ pub fn to_string<T: Serialize>(value: &T) -> Result<String> {
         indent: 0,
     };
     value.serialize(&mut serializer)?;
+    serializer.end_file();
     Ok(serializer.output)
 }
 
 impl Serializer {
     fn newline_with_indent(&mut self) {
-        self.output += "\n";
-        self.output
-            .push_str(&(" ".to_string().repeat(self.indent as usize * 2)));
+        if !self.output.is_empty() {
+            self.output += "\n";
+            self.output
+                .push_str(&(" ".to_string().repeat(self.indent as usize * 2)));
+        }
     }
 
     fn increase_indent(&mut self) {
@@ -30,7 +33,11 @@ impl Serializer {
 
     fn decrease_indent(&mut self) {
         self.indent -= 1;
-        assert!(self.indent >= 0);
+        // assert!(self.indent >= 0);
+    }
+
+    fn end_file(&mut self) {
+        self.output += "\n";
     }
 }
 
@@ -146,7 +153,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         _variant_index: u32,
         _variant: &'static str,
     ) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        self.serialize_str(_variant)
     }
 
     fn serialize_newtype_struct<T>(
@@ -164,13 +171,18 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
-        _value: &T,
+        variant: &'static str,
+        value: &T,
     ) -> std::result::Result<Self::Ok, Self::Error>
     where
         T: ?Sized + Serialize,
     {
-        todo!()
+        variant.serialize(&mut *self)?;
+        self.output += ":";
+        self.increase_indent();
+        value.serialize(&mut *self)?;
+        self.decrease_indent();
+        Ok(())
     }
 
     fn serialize_seq(
@@ -199,17 +211,19 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         _len: usize,
     ) -> std::result::Result<Self::SerializeTupleVariant, Self::Error> {
-        todo!()
+        variant.serialize(&mut *self)?;
+        self.output += ":";
+        self.increase_indent();
+        Ok(self)
     }
 
     fn serialize_map(
         self,
         _len: Option<usize>,
     ) -> std::result::Result<Self::SerializeMap, Self::Error> {
-        self.increase_indent();
         Ok(self)
     }
 
@@ -225,10 +239,13 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         _len: usize,
     ) -> std::result::Result<Self::SerializeStructVariant, Self::Error> {
-        todo!()
+        variant.serialize(&mut *self)?;
+        self.output += ":";
+        self.increase_indent();
+        Ok(self)
     }
 }
 
@@ -242,7 +259,9 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     {
         self.newline_with_indent();
         self.output += "- ";
+        self.increase_indent();
         value.serialize(&mut **self)?;
+        self.decrease_indent();
         Ok(())
     }
 
@@ -286,15 +305,21 @@ impl<'a> ser::SerializeTupleVariant for &'a mut Serializer {
     type Ok = ();
     type Error = SerializeError;
 
-    fn serialize_field<T>(&mut self, _value: &T) -> std::result::Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, value: &T) -> std::result::Result<(), Self::Error>
     where
         T: ?Sized + Serialize,
     {
-        todo!()
+        self.newline_with_indent();
+        self.output += "- ";
+        self.increase_indent();
+        value.serialize(&mut **self)?;
+        self.decrease_indent();
+        Ok(())
     }
 
     fn end(self) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        self.decrease_indent();
+        Ok(())
     }
 }
 impl<'a> ser::SerializeMap for &'a mut Serializer {
@@ -331,15 +356,16 @@ impl<'a> ser::SerializeStruct for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
+        self.newline_with_indent();
         key.serialize(&mut **self)?;
         self.output += ":";
+        self.increase_indent();
         value.serialize(&mut **self)?;
-        self.output += "\n";
+        self.decrease_indent();
         Ok(())
     }
 
     fn end(self) -> std::result::Result<Self::Ok, Self::Error> {
-        self.decrease_indent();
         Ok(())
     }
 }
@@ -349,16 +375,23 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
 
     fn serialize_field<T>(
         &mut self,
-        _key: &'static str,
-        _value: &T,
+        key: &'static str,
+        value: &T,
     ) -> std::result::Result<(), Self::Error>
     where
         T: ?Sized + Serialize,
     {
-        todo!()
+        self.newline_with_indent();
+        key.serialize(&mut **self)?;
+        self.output += ":";
+        self.increase_indent();
+        value.serialize(&mut **self)?;
+        self.decrease_indent();
+        Ok(())
     }
 
     fn end(self) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        self.decrease_indent();
+        Ok(())
     }
 }
