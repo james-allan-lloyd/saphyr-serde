@@ -1,3 +1,4 @@
+use super::escape_string::{escape_str, need_quotes};
 use crate::error::SerializeError;
 use serde::{Serialize, ser};
 
@@ -124,23 +125,27 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_str(self, v: &str) -> std::result::Result<Self::Ok, Self::Error> {
         self.prepend_space_if_value();
-        // TODO: what are the cases where we don't need to quote?
-        // self.output += "\"";
-        self.output += v;
-        // self.output += "\"";
+
+        if v.contains("\n") {
+            self.output += "|";
+            for line in v.lines() {
+                self.newline_with_indent();
+                self.output += line;
+            }
+        } else if need_quotes(v) {
+            escape_str(&mut self.output, v)?;
+        } else {
+            self.output += v;
+        }
         Ok(())
     }
 
     fn serialize_bytes(self, _v: &[u8]) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        unimplemented!()
     }
 
     fn serialize_none(self) -> std::result::Result<Self::Ok, Self::Error> {
-        if self.output.ends_with(':') {
-            self.output += " ";
-        }
-        self.output += "null";
-        Ok(())
+        self.serialize_unit()
     }
 
     fn serialize_some<T>(self, value: &T) -> std::result::Result<Self::Ok, Self::Error>
@@ -151,14 +156,16 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_unit(self) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        self.prepend_space_if_value();
+        self.output += "null";
+        Ok(())
     }
 
     fn serialize_unit_struct(
         self,
         _name: &'static str,
     ) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        self.serialize_unit()
     }
 
     fn serialize_unit_variant(
@@ -213,9 +220,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     fn serialize_tuple_struct(
         self,
         _name: &'static str,
-        _len: usize,
+        len: usize,
     ) -> std::result::Result<Self::SerializeTupleStruct, Self::Error> {
-        todo!()
+        self.serialize_seq(Some(len))
     }
 
     fn serialize_tuple_variant(
@@ -306,15 +313,20 @@ impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
     type Ok = ();
     type Error = SerializeError;
 
-    fn serialize_field<T>(&mut self, _value: &T) -> std::result::Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, value: &T) -> std::result::Result<(), Self::Error>
     where
         T: ?Sized + Serialize,
     {
-        todo!()
+        self.newline_with_indent();
+        self.output += "- ";
+        self.increase_indent();
+        value.serialize(&mut **self)?;
+        self.decrease_indent();
+        Ok(())
     }
 
     fn end(self) -> std::result::Result<Self::Ok, Self::Error> {
-        todo!()
+        Ok(())
     }
 }
 impl<'a> ser::SerializeTupleVariant for &'a mut Serializer {

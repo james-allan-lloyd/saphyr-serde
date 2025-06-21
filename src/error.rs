@@ -3,7 +3,13 @@ use std::fmt::Display;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
-pub enum SerializeError {}
+pub enum SerializeError {
+    #[error("format error")]
+    FormatError(#[from] std::fmt::Error),
+
+    #[error("Error during serialization: {0}")]
+    SerdeError(String),
+}
 
 impl serde::ser::Error for SerializeError {
     #[doc = r" Used when a [`Serialize`] implementation encounters any error"]
@@ -41,11 +47,11 @@ impl serde::ser::Error for SerializeError {
     #[doc = r""]
     #[doc = r" [`Path`]: std::path::Path"]
     #[doc = r" [`Serialize`]: crate::Serialize"]
-    fn custom<T>(_msg: T) -> Self
+    fn custom<T>(msg: T) -> Self
     where
         T: Display,
     {
-        todo!()
+        Self::SerdeError(format!("{}", msg))
     }
 }
 
